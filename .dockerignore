@@ -2,7 +2,8 @@
 .github
 .vscode
 .idea
-bin/
+bin/*
+!bin/entrypoint.sh
 *.md
 *.test
 *.out
