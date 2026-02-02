@@ -4,8 +4,8 @@ proto/jackpb/
 # Binaries
 bin/*
 !bin/entrypoint.sh
-jack
-jack-service
+/jack
+/jack-service
 *.exe
 *.exe~
 *.dll
