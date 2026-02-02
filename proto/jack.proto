@@ -1,0 +1,70 @@
+syntax = "proto3";
+
+package jack;
+
+option go_package = "github.com/clerk/jack-service/proto/jackpb";
+
+import "google/protobuf/timestamp.proto";
+
+// BackgroundJobs is the main service for enqueueing background jobs.
+service BackgroundJobs {
+    // Enqueue a single job for background processing.
+    rpc Enqueue(EnqueueRequest) returns (EnqueueResponse);
+
+    // Enqueue multiple jobs in a single request (best-effort, non-atomic).
+    rpc EnqueueBulk(EnqueueBulkRequest) returns (EnqueueBulkResponse);
+}
+
+// EnqueueRequest represents a single job to be enqueued.
+message EnqueueRequest {
+    // Producer identifier (required).
+    string producer_id = 1;
+
+    // Job type name (required).
+    string job_type = 2;
+
+    // Opaque payload data delivered to the consumer (optional).
+    bytes payload = 3;
+
+    // Scheduled execution time. If not set, job runs immediately.
+    google.protobuf.Timestamp run_at = 4;
+
+    // Distributed tracing correlation ID (optional).
+    string trace_id = 5;
+}
+
+// EnqueueResponse is returned after successfully enqueueing a job.
+message EnqueueResponse {
+    // Unique job identifier (decodable for debugging).
+    string job_id = 1;
+
+    // Error messages about the request (e.g., unregistered producer or job type).
+    repeated string error_messages = 2;
+}
+
+// EnqueueBulkRequest contains multiple jobs to enqueue.
+message EnqueueBulkRequest {
+    // Jobs to enqueue.
+    repeated EnqueueRequest jobs = 1;
+}
+
+// EnqueueBulkResponse contains results for each job in the bulk request.
+message EnqueueBulkResponse {
+    // Per-job results, in the same order as the request.
+    repeated BulkResult results = 1;
+}
+
+// BulkResult represents the result of enqueueing a single job in a bulk request.
+message BulkResult {
+    // Position in the request array (0-indexed).
+    int32 index = 1;
+
+    // Job ID on success, empty on failure.
+    string job_id = 2;
+
+    // Error message on failure, empty on success.
+    string error = 3;
+
+    // Error messages about the request (e.g., unregistered producer or job type).
+    repeated string error_messages = 4;
+}

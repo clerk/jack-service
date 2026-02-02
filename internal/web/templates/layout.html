@@ -1,0 +1,27 @@
+{{define "layout_start"}}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{.Title}} - Jack</title>
+    <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+    <header class="header">
+        <div class="header-content">
+            <a href="/producers" class="logo"><span class="highlight">J</span><span class="highlight">A</span><span class="highlight">C</span><span class="highlight">K</span></a>
+            <nav class="nav">
+                <a href="/producers" class="nav-link">Producers</a>
+                <a href="/grpc/" class="nav-link nav-external" target="_blank">gRPC UI <span class="external-icon">↗</span></a>
+            </nav>
+        </div>
+    </header>
+    <main class="container">
+{{end}}
+
+{{define "layout_end"}}
+    </main>
+</body>
+</html>
+{{end}}

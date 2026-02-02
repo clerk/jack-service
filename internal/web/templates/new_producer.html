@@ -1,0 +1,24 @@
+{{define "new_producer"}}
+{{template "layout_start" map "Title" "New Producer"}}
+    <a href="/producers" class="back-link">&larr; Back to producers</a>
+    <h1 style="margin-bottom: 32px;">New Producer</h1>
+
+    <div class="form-card">
+        {{if .Error}}<div class="error-msg">{{.Error}}</div>{{end}}
+        <form method="POST" action="/producers/create">
+            <div class="form-group">
+                <label>Name</label>
+                <input type="text" name="name" required placeholder="e.g., billing-service">
+            </div>
+            <div class="form-group">
+                <label>Description</label>
+                <textarea name="description" rows="3" placeholder="Optional description"></textarea>
+            </div>
+            <div class="form-actions">
+                <button type="submit" class="btn">Create Producer</button>
+                <a href="/producers" class="btn btn-secondary">Cancel</a>
+            </div>
+        </form>
+    </div>
+{{template "layout_end"}}
+{{end}}

@@ -1,0 +1,25 @@
+{{define "producer_created"}}
+{{template "layout_start" map "Title" "Producer Created"}}
+    <a href="/producers" class="back-link">&larr; Back to producers</a>
+    <h1 style="margin-bottom: 24px;">Producer Created</h1>
+
+    <div class="success-msg">Producer "{{.Producer.Name}}" created successfully.</div>
+
+    <div class="details">
+        <div class="details-grid">
+            <span class="details-label">Producer ID</span>
+            <span class="details-value">{{.Producer.ProducerId}}</span>
+            <span class="details-label">Name</span>
+            <span class="details-value" style="font-family: inherit;">{{.Producer.Name}}</span>
+            {{if .Producer.Description}}
+            <span class="details-label">Description</span>
+            <span class="details-value" style="font-family: inherit;">{{.Producer.Description}}</span>
+            {{end}}
+        </div>
+    </div>
+
+    <div style="margin-top: 24px;">
+        <a href="/producers/view?id={{.Producer.ProducerId}}" class="btn">View Producer</a>
+    </div>
+{{template "layout_end"}}
+{{end}}

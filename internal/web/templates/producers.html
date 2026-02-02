@@ -1,0 +1,37 @@
+{{define "producers"}}
+{{template "layout_start" map "Title" "Producers"}}
+    <div class="page-header">
+        <h1>Producers</h1>
+        <a href="/producers/new" class="btn">+ New Producer</a>
+    </div>
+    {{if .Producers}}
+    <div class="card">
+        <table>
+            <thead>
+                <tr>
+                    <th>Name</th>
+                    <th>Producer ID</th>
+                    <th>Description</th>
+                </tr>
+            </thead>
+            <tbody>
+                {{range .Producers}}
+                <tr>
+                    <td><a href="/producers/view?id={{.ProducerId}}">{{.Name}}</a></td>
+                    <td><code>{{.ProducerId}}</code></td>
+                    <td>{{.Description}}</td>
+                </tr>
+                {{end}}
+            </tbody>
+        </table>
+    </div>
+    {{else}}
+    <div class="card">
+        <div class="empty">
+            <p>No producers yet</p>
+            <a href="/producers/new" class="btn">Create your first producer</a>
+        </div>
+    </div>
+    {{end}}
+{{template "layout_end"}}
+{{end}}

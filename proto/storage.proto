@@ -1,0 +1,47 @@
+syntax = "proto3";
+
+package jack;
+
+option go_package = "github.com/clerk/jack-service/proto/jackpb";
+
+import "google/protobuf/timestamp.proto";
+
+// Queue priority levels for job execution.
+enum Queue {
+    QUEUE_UNSPECIFIED = 0;
+    QUEUE_IMMEDIATE = 1;   // SLA: ≤5 seconds
+    QUEUE_HIGH = 2;        // SLA: ≤15 seconds
+    QUEUE_MEDIUM = 3;      // SLA: ≤1 minute
+    QUEUE_LOW = 4;         // SLA: ≤5 minutes
+}
+
+// Producer is a registered producer that can enqueue jobs.
+message Producer {
+    string producer_id = 1;
+    string name = 2;
+    string description = 3;
+    int32 rate_limit_rps = 4;
+    google.protobuf.Timestamp created_at = 5;
+    google.protobuf.Timestamp updated_at = 6;
+}
+
+// JobType defines a type of job that a producer can enqueue.
+message JobType {
+    string producer_id = 1;
+    string name = 2;
+    Queue queue = 3;
+    int32 max_retries = 4;
+    string description = 5;
+    google.protobuf.Timestamp created_at = 6;
+    google.protobuf.Timestamp updated_at = 7;
+}
+
+// ProducersFile is the top-level structure for producers.json
+message ProducersFile {
+    repeated Producer producers = 1;
+}
+
+// JobTypesFile is the top-level structure for job_types.json
+message JobTypesFile {
+    repeated JobType job_types = 1;
+}
