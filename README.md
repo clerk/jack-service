@@ -9,6 +9,10 @@ Background job queue microservice that owns job enqueueing, with pluggable queue
 │   Applications  │──────────────▶│   Jack Service  │
 └─────────────────┘               └────────┬────────┘
                                            │
+┌─────────────────┐     gRPC      ┌────────┴────────┐
+│   Jack Console  │──────────────▶│  AdminService   │
+└─────────────────┘               └────────┬────────┘
+                                           │
                               ┌────────────┴────────────┐
                               │                         │
                               ▼                         ▼
@@ -21,13 +25,16 @@ Background job queue microservice that owns job enqueueing, with pluggable queue
 ### Components
 
 - **gRPC API** - `Enqueue` and `EnqueueBulk` endpoints for job submission
+- **AdminService** - gRPC API for managing producers and job types (used by [jack-console](https://github.com/clerk/jack-console))
 - **Storage** - Producer and job type configuration (GCS or in-memory)
 - **Queue Backends** - Pluggable job delivery (Pub/Sub or noop for testing)
-- **Web Console** - HTTP UI for managing producers and job types
+- **Health** - Standard gRPC Health Checking Protocol
 
 ## API
 
-### Enqueue
+### BackgroundJobs Service
+
+#### Enqueue
 
 Submit a single job for background processing.
 
@@ -43,12 +50,24 @@ rpc Enqueue(EnqueueRequest) returns (EnqueueResponse);
 | run_at | Timestamp | No | Scheduled execution time (immediate if unset) |
 | trace_id | string | No | Distributed tracing correlation ID |
 
-### EnqueueBulk
+#### EnqueueBulk
 
 Submit multiple jobs in a single request (best-effort, non-atomic).
 
 ```protobuf
 rpc EnqueueBulk(EnqueueBulkRequest) returns (EnqueueBulkResponse);
+```
+
+### AdminService
+
+CRUD operations for producers and job types.
+
+```protobuf
+rpc CreateProducer(CreateProducerRequest) returns (CreateProducerResponse);
+rpc GetProducer(GetProducerRequest) returns (GetProducerResponse);
+rpc ListProducers(ListProducersRequest) returns (ListProducersResponse);
+rpc CreateJobType(CreateJobTypeRequest) returns (CreateJobTypeResponse);
+rpc ListJobTypes(ListJobTypesRequest) returns (ListJobTypesResponse);
 ```
 
 ### Priority Queues
@@ -69,7 +88,6 @@ Environment variables:
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `GRPC_PORT` | 50051 | gRPC server port |
-| `HTTP_PORT` | 8080 | HTTP server port (health checks, web console) |
 | `GCS_BUCKET` | (none) | GCS bucket for configuration storage |
 | `GCS_PREFIX` | (none) | Object prefix within bucket |
 | `QUEUE_BACKEND` | noop | Queue backend: `noop`, `pubsub` |
@@ -99,14 +117,24 @@ make run
 make test
 ```
 
-### Endpoints
+### Verifying with grpcurl
 
-| URL | Description |
-|-----|-------------|
-| `localhost:50051` | gRPC API |
-| `http://localhost:8080/health` | Health check |
-| `http://localhost:8080/` | Web console - manage producers and job types |
-| `http://localhost:8080/grpc/` | gRPC UI - test API calls in the browser |
+```bash
+# List all services
+grpcurl -plaintext localhost:50051 list
+
+# Health check
+grpcurl -plaintext localhost:50051 grpc.health.v1.Health/Check
+
+# List producers
+grpcurl -plaintext localhost:50051 jack.AdminService/ListProducers
+
+# List job types for a producer
+grpcurl -plaintext -d '{"producer_id": "prod_XXXXXXXX"}' localhost:50051 jack.AdminService/ListJobTypes
+
+# Enqueue a job
+grpcurl -plaintext -d '{"producer_id": "prod_XXXXXXXX", "job_type": "send_email"}' localhost:50051 jack.BackgroundJobs/Enqueue
+```
 
 ## Protobuf
 
