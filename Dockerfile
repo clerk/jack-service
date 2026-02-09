@@ -34,7 +34,7 @@ COPY --from=builder /app/jack /app/jack
 # Copy Datadog serverless-init for tracing
 COPY --from=gcr.io/datadoghq/serverless-init:1.8.2 /datadog-init /app/datadog-init
 
-EXPOSE 8080 50051
+EXPOSE 50051
 
 ENTRYPOINT ["/app/entrypoint.sh"]
 CMD ["/app/datadog-init", "/app/jack"]
