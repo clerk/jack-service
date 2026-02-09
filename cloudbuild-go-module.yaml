@@ -1,0 +1,27 @@
+# Cloud Build configuration for publishing jack-service as a Go module to Artifact Registry.
+#
+# Triggered by pushing a semver tag (e.g. v0.1.0).
+steps:
+  - id: publish-go-module
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk
+    entrypoint: bash
+    args:
+      - -c
+      - |
+        gcloud artifacts go upload \
+          --project=${PROJECT_ID} \
+          --repository=${_GO_REPOSITORY} \
+          --location=${_REGION} \
+          --module-path=github.com/clerk/jack-service \
+          --version=${TAG_NAME} \
+          --source=.
+
+substitutions:
+  _REGION: us-central1
+  _GO_REPOSITORY: go-modules
+
+options:
+  logging: CLOUD_LOGGING_ONLY
+  dynamicSubstitutions: true
+
+timeout: 300s # 5 minutes
