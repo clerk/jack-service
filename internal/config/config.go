@@ -9,7 +9,6 @@ import (
 type Config struct {
 	// Server configuration
 	GRPCPort int
-	HTTPPort int
 
 	// GCS configuration
 	GCSBucket string
@@ -26,7 +25,6 @@ type Config struct {
 func Load() (*Config, error) {
 	return &Config{
 		GRPCPort:      cenv.GetIntOrDefault(cenv.GRPCPort, 50051),
-		HTTPPort:      cenv.GetIntOrDefault(cenv.HTTPPort, 8080),
 		GCSBucket:     cenv.Get(cenv.GCSBucket),
 		GCSPrefix:     cenv.Get(cenv.GCSPrefix),
 		QueueBackend:  cenv.GetOrDefault(cenv.QueueBackend, "noop"),

@@ -15,7 +15,6 @@ const (
 
 	// Server configuration
 	GRPCPort = "GRPC_PORT"
-	HTTPPort = "HTTP_PORT"
 
 	// GCS configuration
 	GCSBucket = "GCS_BUCKET"

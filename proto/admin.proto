@@ -1,0 +1,86 @@
+syntax = "proto3";
+
+package jack;
+
+option go_package = "github.com/clerk/jack-service/proto/jackpb";
+
+import "storage.proto";
+
+// AdminService provides CRUD operations for producers and job types.
+// Used by the admin console to manage configuration.
+service AdminService {
+    // CreateProducer registers a new producer.
+    // The server generates the producer_id (prod_* format).
+    rpc CreateProducer(CreateProducerRequest) returns (CreateProducerResponse);
+
+    // GetProducer retrieves a single producer by ID.
+    rpc GetProducer(GetProducerRequest) returns (GetProducerResponse);
+
+    // ListProducers returns all registered producers.
+    rpc ListProducers(ListProducersRequest) returns (ListProducersResponse);
+
+    // CreateJobType registers a new job type for a producer.
+    rpc CreateJobType(CreateJobTypeRequest) returns (CreateJobTypeResponse);
+
+    // ListJobTypes returns all job types for a given producer.
+    rpc ListJobTypes(ListJobTypesRequest) returns (ListJobTypesResponse);
+}
+
+message CreateProducerRequest {
+    // Display name for the producer (required).
+    string name = 1;
+
+    // Optional description.
+    string description = 2;
+}
+
+message CreateProducerResponse {
+    // The created producer with server-generated ID and timestamps.
+    Producer producer = 1;
+}
+
+message GetProducerRequest {
+    // The producer ID to look up (required).
+    string producer_id = 1;
+}
+
+message GetProducerResponse {
+    Producer producer = 1;
+}
+
+message ListProducersRequest {}
+
+message ListProducersResponse {
+    repeated Producer producers = 1;
+}
+
+message CreateJobTypeRequest {
+    // The producer this job type belongs to (required).
+    string producer_id = 1;
+
+    // Job type name (required).
+    string name = 2;
+
+    // Queue priority.
+    Queue queue = 3;
+
+    // Maximum retry attempts (defaults to 3 if not set).
+    int32 max_retries = 4;
+
+    // Optional description.
+    string description = 5;
+}
+
+message CreateJobTypeResponse {
+    // The created job type.
+    JobType job_type = 1;
+}
+
+message ListJobTypesRequest {
+    // The producer whose job types to list (required).
+    string producer_id = 1;
+}
+
+message ListJobTypesResponse {
+    repeated JobType job_types = 1;
+}

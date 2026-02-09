@@ -6,22 +6,19 @@ import (
 	"fmt"
 	"log"
 	"net"
-	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
-	"time"
 
-	"github.com/fullstorydev/grpcui/standalone"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/health"
+	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 	"google.golang.org/grpc/reflection"
 
 	"github.com/clerk/jack-service/internal/api"
 	"github.com/clerk/jack-service/internal/config"
 	"github.com/clerk/jack-service/internal/queue"
 	"github.com/clerk/jack-service/internal/storage"
-	"github.com/clerk/jack-service/internal/web"
 	"github.com/clerk/jack-service/proto/jackpb"
 )
 
@@ -75,6 +72,15 @@ func main() {
 	runtimeServer := api.NewServer(store, backend, api.DefaultServerConfig())
 	jackpb.RegisterBackgroundJobsServer(grpcServer, runtimeServer)
 
+	// Register admin service (producer/job type CRUD)
+	adminServer := api.NewAdminServer(store)
+	jackpb.RegisterAdminServiceServer(grpcServer, adminServer)
+
+	// Register gRPC health checking
+	healthServer := health.NewServer()
+	healthpb.RegisterHealthServer(grpcServer, healthServer)
+	healthServer.SetServingStatus("", healthpb.HealthCheckResponse_SERVING)
+
 	// Enable reflection for debugging tools like grpcurl
 	reflection.Register(grpcServer)
 
@@ -90,53 +96,6 @@ func main() {
 		}
 	}()
 
-	// Start HTTP server for health checks and web console
-	httpMux := http.NewServeMux()
-	httpMux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("OK"))
-	})
-
-	// Web console
-	console := web.New(store)
-	console.RegisterRoutes(httpMux)
-
-	// gRPC UI (connect to our own gRPC server)
-	go func() {
-		// Wait a moment for gRPC server to be ready
-		time.Sleep(100 * time.Millisecond)
-		grpcConn, err := grpc.NewClient(
-			fmt.Sprintf("localhost:%d", cfg.GRPCPort),
-			grpc.WithTransportCredentials(insecure.NewCredentials()),
-		)
-		if err != nil {
-			log.Printf("Failed to connect to gRPC for UI: %v", err)
-			return
-		}
-		grpcuiHandler, err := standalone.HandlerViaReflection(ctx, grpcConn, fmt.Sprintf("localhost:%d", cfg.GRPCPort))
-		if err != nil {
-			log.Printf("Failed to create gRPC UI handler: %v", err)
-			return
-		}
-		httpMux.Handle("/grpc/", http.StripPrefix("/grpc", grpcuiHandler))
-		log.Printf("gRPC UI available at http://localhost:%d/grpc/", cfg.HTTPPort)
-	}()
-
-	httpServer := &http.Server{
-		Addr:         fmt.Sprintf(":%d", cfg.HTTPPort),
-		Handler:      httpMux,
-		ReadTimeout:  15 * time.Second,
-		WriteTimeout: 15 * time.Second,
-		IdleTimeout:  60 * time.Second,
-	}
-
-	go func() {
-		log.Printf("HTTP server listening on :%d (health checks)", cfg.HTTPPort)
-		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatalf("HTTP server error: %v", err)
-		}
-	}()
-
 	// Wait for shutdown signal
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
@@ -145,11 +104,8 @@ func main() {
 	log.Println("Shutting down...")
 
 	// Graceful shutdown
-	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer shutdownCancel()
-
+	healthServer.SetServingStatus("", healthpb.HealthCheckResponse_NOT_SERVING)
 	grpcServer.GracefulStop()
-	httpServer.Shutdown(shutdownCtx)
 
 	log.Println("Shutdown complete")
 }

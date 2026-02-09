@@ -4,7 +4,6 @@ go 1.25
 
 require (
 	cloud.google.com/go/storage v1.38.0
-	github.com/fullstorydev/grpcui v1.4.3
 	google.golang.org/grpc v1.64.1
 	google.golang.org/protobuf v1.36.5
 )
@@ -13,12 +12,7 @@ require (
 	cloud.google.com/go v0.112.1 // indirect
 	cloud.google.com/go/compute/metadata v0.3.0 // indirect
 	cloud.google.com/go/iam v1.1.6 // indirect
-	github.com/bufbuild/protocompile v0.14.1 // indirect
-	github.com/cncf/xds/go v0.0.0-20240318125728-8a4994d93e50 // indirect
-	github.com/envoyproxy/go-control-plane v0.12.0 // indirect
-	github.com/envoyproxy/protoc-gen-validate v1.0.4 // indirect
 	github.com/felixge/httpsnoop v1.0.4 // indirect
-	github.com/fullstorydev/grpcurl v1.9.3 // indirect
 	github.com/go-logr/logr v1.4.1 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/golang/groupcache v0.0.0-20210331224755-41bb18bfe9da // indirect
@@ -27,7 +21,7 @@ require (
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/googleapis/enterprise-certificate-proxy v0.3.2 // indirect
 	github.com/googleapis/gax-go/v2 v2.12.2 // indirect
-	github.com/jhump/protoreflect v1.17.0 // indirect
+	github.com/stretchr/testify v1.9.0 // indirect
 	go.opencensus.io v0.24.0 // indirect
 	go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc v0.49.0 // indirect
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.49.0 // indirect

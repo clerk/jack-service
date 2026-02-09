@@ -34,6 +34,8 @@ steps:
           --platform=managed \
           --image=${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPOSITORY}/${_SERVICE}:${COMMIT_SHA} \
           --region=${_DEPLOY_REGION} \
+          --port=50051 \
+          --use-http2 \
           --update-labels=commit-sha=${COMMIT_SHA} \
           --set-env-vars=COMMIT_SHA=${COMMIT_SHA},DD_SERVICE=${_SERVICE},DD_VERSION=${COMMIT_SHA},DD_GIT_COMMIT_SHA=${COMMIT_SHA},DD_GIT_REPOSITORY_URL=${_REPO} \
           --quiet && \
