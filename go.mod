@@ -4,9 +4,12 @@ go 1.25
 
 require (
 	cloud.google.com/go/storage v1.38.0
+	github.com/clerk/jack-service/proto/jackpb v0.0.0
 	google.golang.org/grpc v1.64.1
 	google.golang.org/protobuf v1.36.5
 )
+
+replace github.com/clerk/jack-service/proto/jackpb => ./proto/jackpb
 
 require (
 	cloud.google.com/go v0.112.1 // indirect

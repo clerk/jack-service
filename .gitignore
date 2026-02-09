@@ -1,3 +1,6 @@
+# Generated proto files (go.mod and go.sum are committed)
+proto/jackpb/*.pb.go
+
 # Binaries
 bin/*
 !bin/entrypoint.sh
