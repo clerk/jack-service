@@ -7,6 +7,7 @@ RUN go install github.com/bufbuild/buf/cmd/buf@latest
 
 # Download dependencies first (cache layer)
 COPY go.mod go.sum ./
+COPY proto/jackpb/go.mod proto/jackpb/go.sum proto/jackpb/
 RUN go mod download
 
 # Copy source

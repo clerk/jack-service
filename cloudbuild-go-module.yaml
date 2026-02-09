@@ -17,8 +17,8 @@ steps:
         go install github.com/bufbuild/buf/cmd/buf@latest
         export PATH="$$(go env GOPATH)/bin:$$PATH"
 
-        # Generate proto code
-        cd proto && buf generate && cd ..
+        # Generate proto code (buf.yaml and buf.gen.yaml are in repo root)
+        buf generate
 
         # Install gcloud + AR upload tool
         apt-get update -qq && apt-get install -y -qq apt-transport-https ca-certificates gnupg curl
