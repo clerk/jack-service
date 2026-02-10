@@ -116,6 +116,7 @@ func (s *Server) Enqueue(ctx context.Context, req *jackpb.EnqueueRequest) (*jack
 	return &jackpb.EnqueueResponse{
 		JobId:         jobID,
 		ErrorMessages: warnings,
+		CorrelationId: req.CorrelationId,
 	}, nil
 }
 
@@ -202,10 +203,11 @@ func (s *Server) EnqueueBulk(ctx context.Context, req *jackpb.EnqueueBulkRequest
 
 	// Build response
 	results := make([]*jackpb.BulkResult, len(req.Jobs))
-	for i := range req.Jobs {
+	for i, r := range req.Jobs {
 		results[i] = &jackpb.BulkResult{
 			Index:         int32(i),
 			ErrorMessages: jobWarnings[i],
+			CorrelationId: r.CorrelationId,
 		}
 	}
 

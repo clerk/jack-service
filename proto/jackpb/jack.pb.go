@@ -34,7 +34,10 @@ type EnqueueRequest struct {
 	// Scheduled execution time. If not set, job runs immediately.
 	RunAt *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=run_at,json=runAt,proto3" json:"run_at,omitempty"`
 	// Distributed tracing correlation ID (optional).
-	TraceId       string `protobuf:"bytes,5,opt,name=trace_id,json=traceId,proto3" json:"trace_id,omitempty"`
+	TraceId string `protobuf:"bytes,5,opt,name=trace_id,json=traceId,proto3" json:"trace_id,omitempty"`
+	// Caller-assigned reference echoed back in responses, used by the caller
+	// to correlate results with their internal tracking (e.g., outbox row ID).
+	CorrelationId string `protobuf:"bytes,6,opt,name=correlation_id,json=correlationId,proto3" json:"correlation_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -104,6 +107,13 @@ func (x *EnqueueRequest) GetTraceId() string {
 	return ""
 }
 
+func (x *EnqueueRequest) GetCorrelationId() string {
+	if x != nil {
+		return x.CorrelationId
+	}
+	return ""
+}
+
 // EnqueueResponse is returned after successfully enqueueing a job.
 type EnqueueResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -111,6 +121,8 @@ type EnqueueResponse struct {
 	JobId string `protobuf:"bytes,1,opt,name=job_id,json=jobId,proto3" json:"job_id,omitempty"`
 	// Error messages about the request (e.g., unregistered producer or job type).
 	ErrorMessages []string `protobuf:"bytes,2,rep,name=error_messages,json=errorMessages,proto3" json:"error_messages,omitempty"`
+	// Echoed from the corresponding EnqueueRequest.correlation_id.
+	CorrelationId string `protobuf:"bytes,3,opt,name=correlation_id,json=correlationId,proto3" json:"correlation_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -157,6 +169,13 @@ func (x *EnqueueResponse) GetErrorMessages() []string {
 		return x.ErrorMessages
 	}
 	return nil
+}
+
+func (x *EnqueueResponse) GetCorrelationId() string {
+	if x != nil {
+		return x.CorrelationId
+	}
+	return ""
 }
 
 // EnqueueBulkRequest contains multiple jobs to enqueue.
@@ -262,6 +281,8 @@ type BulkResult struct {
 	Error string `protobuf:"bytes,3,opt,name=error,proto3" json:"error,omitempty"`
 	// Error messages about the request (e.g., unregistered producer or job type).
 	ErrorMessages []string `protobuf:"bytes,4,rep,name=error_messages,json=errorMessages,proto3" json:"error_messages,omitempty"`
+	// Echoed from the corresponding EnqueueRequest.correlation_id.
+	CorrelationId string `protobuf:"bytes,5,opt,name=correlation_id,json=correlationId,proto3" json:"correlation_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -324,32 +345,42 @@ func (x *BulkResult) GetErrorMessages() []string {
 	return nil
 }
 
+func (x *BulkResult) GetCorrelationId() string {
+	if x != nil {
+		return x.CorrelationId
+	}
+	return ""
+}
+
 var File_jack_proto protoreflect.FileDescriptor
 
 const file_jack_proto_rawDesc = "" +
 	"\n" +
 	"\n" +
-	"jack.proto\x12\x04jack\x1a\x1fgoogle/protobuf/timestamp.proto\"\xb4\x01\n" +
+	"jack.proto\x12\x04jack\x1a\x1fgoogle/protobuf/timestamp.proto\"\xdb\x01\n" +
 	"\x0eEnqueueRequest\x12\x1f\n" +
 	"\vproducer_id\x18\x01 \x01(\tR\n" +
 	"producerId\x12\x19\n" +
 	"\bjob_type\x18\x02 \x01(\tR\ajobType\x12\x18\n" +
 	"\apayload\x18\x03 \x01(\fR\apayload\x121\n" +
 	"\x06run_at\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\x05runAt\x12\x19\n" +
-	"\btrace_id\x18\x05 \x01(\tR\atraceId\"O\n" +
+	"\btrace_id\x18\x05 \x01(\tR\atraceId\x12%\n" +
+	"\x0ecorrelation_id\x18\x06 \x01(\tR\rcorrelationId\"v\n" +
 	"\x0fEnqueueResponse\x12\x15\n" +
 	"\x06job_id\x18\x01 \x01(\tR\x05jobId\x12%\n" +
-	"\x0eerror_messages\x18\x02 \x03(\tR\rerrorMessages\">\n" +
+	"\x0eerror_messages\x18\x02 \x03(\tR\rerrorMessages\x12%\n" +
+	"\x0ecorrelation_id\x18\x03 \x01(\tR\rcorrelationId\">\n" +
 	"\x12EnqueueBulkRequest\x12(\n" +
 	"\x04jobs\x18\x01 \x03(\v2\x14.jack.EnqueueRequestR\x04jobs\"A\n" +
 	"\x13EnqueueBulkResponse\x12*\n" +
-	"\aresults\x18\x01 \x03(\v2\x10.jack.BulkResultR\aresults\"v\n" +
+	"\aresults\x18\x01 \x03(\v2\x10.jack.BulkResultR\aresults\"\x9d\x01\n" +
 	"\n" +
 	"BulkResult\x12\x14\n" +
 	"\x05index\x18\x01 \x01(\x05R\x05index\x12\x15\n" +
 	"\x06job_id\x18\x02 \x01(\tR\x05jobId\x12\x14\n" +
 	"\x05error\x18\x03 \x01(\tR\x05error\x12%\n" +
-	"\x0eerror_messages\x18\x04 \x03(\tR\rerrorMessages2\x8c\x01\n" +
+	"\x0eerror_messages\x18\x04 \x03(\tR\rerrorMessages\x12%\n" +
+	"\x0ecorrelation_id\x18\x05 \x01(\tR\rcorrelationId2\x8c\x01\n" +
 	"\x0eBackgroundJobs\x126\n" +
 	"\aEnqueue\x12\x14.jack.EnqueueRequest\x1a\x15.jack.EnqueueResponse\x12B\n" +
 	"\vEnqueueBulk\x12\x18.jack.EnqueueBulkRequest\x1a\x19.jack.EnqueueBulkResponseB,Z*github.com/clerk/jack-service/proto/jackpbb\x06proto3"

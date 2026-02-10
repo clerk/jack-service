@@ -31,6 +31,10 @@ message EnqueueRequest {
 
     // Distributed tracing correlation ID (optional).
     string trace_id = 5;
+
+    // Caller-assigned reference echoed back in responses, used by the caller
+    // to correlate results with their internal tracking (e.g., outbox row ID).
+    string correlation_id = 6;
 }
 
 // EnqueueResponse is returned after successfully enqueueing a job.
@@ -40,6 +44,9 @@ message EnqueueResponse {
 
     // Error messages about the request (e.g., unregistered producer or job type).
     repeated string error_messages = 2;
+
+    // Echoed from the corresponding EnqueueRequest.correlation_id.
+    string correlation_id = 3;
 }
 
 // EnqueueBulkRequest contains multiple jobs to enqueue.
@@ -67,4 +74,7 @@ message BulkResult {
 
     // Error messages about the request (e.g., unregistered producer or job type).
     repeated string error_messages = 4;
+
+    // Echoed from the corresponding EnqueueRequest.correlation_id.
+    string correlation_id = 5;
 }
