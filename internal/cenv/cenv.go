@@ -24,7 +24,11 @@ const (
 	QueueBackend = "QUEUE_BACKEND" // "noop", "pubsub"
 
 	// Pub/Sub configuration
-	PubSubProject = "PUBSUB_PROJECT"
+	PubSubProject        = "PUBSUB_PROJECT"
+	PubSubTopicHigh      = "PUBSUB_TOPIC_HIGH"
+	PubSubTopicMedium    = "PUBSUB_TOPIC_MEDIUM"
+	PubSubTopicLow       = "PUBSUB_TOPIC_LOW"
+	PubSubTopicImmediate = "PUBSUB_TOPIC_IMMEDIATE"
 )
 
 // Get returns the value of an environment variable, trimmed of whitespace.
