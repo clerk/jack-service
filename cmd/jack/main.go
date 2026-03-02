@@ -56,6 +56,20 @@ func main() {
 	// Initialize queue backend
 	var backend queue.Backend
 	switch cfg.QueueBackend {
+	case "pubsub":
+		log.Println("Using GCP Pub/Sub queue backend")
+		pubsubBackend, err := queue.NewPubSubBackend(ctx, queue.PubSubConfig{
+			Project:        cfg.PubSubProject,
+			HighTopic:      cfg.PubSubTopicHigh,
+			MediumTopic:    cfg.PubSubTopicMedium,
+			LowTopic:       cfg.PubSubTopicLow,
+			ImmediateTopic: cfg.PubSubTopicImmediate,
+			Adapter:        &queue.LegacyAdapter{},
+		})
+		if err != nil {
+			log.Fatalf("Failed to initialize pubsub backend: %v", err)
+		}
+		backend = pubsubBackend
 	case "noop":
 		log.Println("Using noop queue backend (jobs will not be delivered)")
 		backend = queue.NewNoopBackend(queue.DefaultConfig())

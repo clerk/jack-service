@@ -18,16 +18,24 @@ type Config struct {
 	QueueBackend string // "noop", "pubsub"
 
 	// Pub/Sub configuration (if using pubsub backend)
-	PubSubProject string
+	PubSubProject        string
+	PubSubTopicHigh      string
+	PubSubTopicMedium    string
+	PubSubTopicLow       string
+	PubSubTopicImmediate string
 }
 
 // Load reads configuration from environment variables.
 func Load() (*Config, error) {
 	return &Config{
-		GRPCPort:      cenv.GetIntOrDefault(cenv.GRPCPort, 50051),
-		GCSBucket:     cenv.Get(cenv.GCSBucket),
-		GCSPrefix:     cenv.Get(cenv.GCSPrefix),
-		QueueBackend:  cenv.GetOrDefault(cenv.QueueBackend, "noop"),
-		PubSubProject: cenv.Get(cenv.PubSubProject),
+		GRPCPort:             cenv.GetIntOrDefault(cenv.GRPCPort, 50051),
+		GCSBucket:            cenv.Get(cenv.GCSBucket),
+		GCSPrefix:            cenv.Get(cenv.GCSPrefix),
+		QueueBackend:         cenv.GetOrDefault(cenv.QueueBackend, "noop"),
+		PubSubProject:        cenv.Get(cenv.PubSubProject),
+		PubSubTopicHigh:      cenv.Get(cenv.PubSubTopicHigh),
+		PubSubTopicMedium:    cenv.Get(cenv.PubSubTopicMedium),
+		PubSubTopicLow:       cenv.Get(cenv.PubSubTopicLow),
+		PubSubTopicImmediate: cenv.Get(cenv.PubSubTopicImmediate),
 	}, nil
 }
