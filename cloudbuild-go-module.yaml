@@ -6,7 +6,7 @@
 steps:
   # Generate proto code and publish as Go module
   - id: publish-go-module
-    name: golang:1.25.0-bookworm
+    name: golang:1.25.6-bookworm
     entrypoint: bash
     args:
       - -c
