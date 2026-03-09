@@ -5,8 +5,10 @@ import (
 	"fmt"
 	"log"
 	"sync"
+	"time"
 
 	"cloud.google.com/go/pubsub"
+	"github.com/DataDog/datadog-go/v5/statsd"
 )
 
 // PubSubBackend publishes jobs to GCP Pub/Sub topics, one per priority level.
@@ -16,6 +18,7 @@ type PubSubBackend struct {
 	client  *pubsub.Client
 	topics  map[Priority]*pubsub.Topic
 	adapter MessageAdapter
+	statsd  statsd.ClientInterface
 }
 
 // PubSubConfig contains configuration for the Pub/Sub backend.
@@ -31,6 +34,9 @@ type PubSubConfig struct {
 
 	// Adapter converts queue.Job into the wire format for the consumer.
 	Adapter MessageAdapter
+
+	// Statsd is the DogStatsD client for metrics.
+	Statsd statsd.ClientInterface
 }
 
 // NewPubSubBackend creates a new Pub/Sub queue backend.
@@ -62,10 +68,16 @@ func NewPubSubBackend(ctx context.Context, cfg PubSubConfig) (*PubSubBackend, er
 		topics[PriorityImmediate] = client.Topic(cfg.ImmediateTopic)
 	}
 
+	sd := cfg.Statsd
+	if sd == nil {
+		sd = &statsd.NoOpClient{}
+	}
+
 	return &PubSubBackend{
 		client:  client,
 		topics:  topics,
 		adapter: cfg.Adapter,
+		statsd:  sd,
 	}, nil
 }
 
@@ -94,10 +106,17 @@ func (b *PubSubBackend) Enqueue(ctx context.Context, job *Job) error {
 		return fmt.Errorf("pubsub: marshal job %s: %w", job.ID, err)
 	}
 
+	tags := []string{"priority:" + job.Priority.String()}
+
+	publishStart := time.Now()
 	result := topic.Publish(ctx, &pubsub.Message{Data: data})
 	if _, err := result.Get(ctx); err != nil {
+		_ = b.statsd.Incr("jack.publish.count", append(tags, "status:error"), 1)
 		return fmt.Errorf("pubsub: publish job %s: %w", job.ID, err)
 	}
+
+	_ = b.statsd.Incr("jack.publish.count", append(tags, "status:success"), 1)
+	_ = b.statsd.Distribution("jack.publish.duration", time.Since(publishStart).Seconds(), tags, 1)
 
 	log.Printf("[pubsub] published job: id=%s type=%s priority=%s",
 		job.ID, job.Type, job.Priority)
@@ -161,6 +180,16 @@ func (b *PubSubBackend) EnqueueBulk(ctx context.Context, jobs []*Job) []EnqueueR
 		}(i, p.result)
 	}
 	wg.Wait()
+
+	// Emit per-job publish metrics
+	for i, r := range results {
+		tags := []string{"priority:" + jobs[i].Priority.String()}
+		if r.Error != nil {
+			_ = b.statsd.Incr("jack.publish.count", append(tags, "status:error"), 1)
+		} else {
+			_ = b.statsd.Incr("jack.publish.count", append(tags, "status:success"), 1)
+		}
+	}
 
 	return results
 }

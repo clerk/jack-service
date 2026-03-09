@@ -10,12 +10,14 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/DataDog/datadog-go/v5/statsd"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/health"
 	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 	"google.golang.org/grpc/reflection"
 
 	"github.com/clerk/jack-service/internal/api"
+	"github.com/clerk/jack-service/internal/cenv"
 	"github.com/clerk/jack-service/internal/config"
 	"github.com/clerk/jack-service/internal/queue"
 	"github.com/clerk/jack-service/internal/storage"
@@ -34,6 +36,22 @@ func main() {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+
+	// Initialize DogStatsD client
+	var sd statsd.ClientInterface
+	if cfg.DatadogStatsdAddr != "" {
+		log.Printf("Connecting to DogStatsD at %s", cfg.DatadogStatsdAddr)
+		sd, err = statsd.New(cfg.DatadogStatsdAddr, statsd.WithTags([]string{
+			"service:jack-service",
+			"env:" + cenv.GetOrDefault("ENV", "development"),
+		}))
+		if err != nil {
+			log.Fatalf("Failed to initialize DogStatsD client: %v", err)
+		}
+	} else {
+		sd = &statsd.NoOpClient{}
+	}
+	defer sd.Close()
 
 	// Initialize storage
 	var store storage.Store
@@ -65,6 +83,7 @@ func main() {
 			LowTopic:       cfg.PubSubTopicLow,
 			ImmediateTopic: cfg.PubSubTopicImmediate,
 			Adapter:        &queue.LegacyAdapter{},
+			Statsd:         sd,
 		})
 		if err != nil {
 			log.Fatalf("Failed to initialize pubsub backend: %v", err)
@@ -83,7 +102,7 @@ func main() {
 	grpcServer := grpc.NewServer()
 
 	// Register runtime service (Enqueue, EnqueueBulk)
-	runtimeServer := api.NewServer(store, backend, api.DefaultServerConfig())
+	runtimeServer := api.NewServer(store, backend, api.DefaultServerConfig(), sd)
 	jackpb.RegisterBackgroundJobsServer(grpcServer, runtimeServer)
 
 	// Register admin service (producer/job type CRUD)

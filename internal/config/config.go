@@ -10,6 +10,9 @@ type Config struct {
 	// Server configuration
 	GRPCPort int
 
+	// Datadog configuration
+	DatadogStatsdAddr string
+
 	// GCS configuration
 	GCSBucket string
 	GCSPrefix string
@@ -28,6 +31,7 @@ type Config struct {
 // Load reads configuration from environment variables.
 func Load() (*Config, error) {
 	return &Config{
+		DatadogStatsdAddr:    cenv.Get(cenv.DatadogStatsdAddr),
 		GRPCPort:             cenv.GetIntOrDefault(cenv.GRPCPort, 50051),
 		GCSBucket:            cenv.Get(cenv.GCSBucket),
 		GCSPrefix:            cenv.Get(cenv.GCSPrefix),

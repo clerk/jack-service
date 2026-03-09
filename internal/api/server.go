@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/DataDog/datadog-go/v5/statsd"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
@@ -23,6 +24,7 @@ type Server struct {
 	store   storage.Store
 	backend queue.Backend
 	config  ServerConfig
+	statsd  statsd.ClientInterface
 }
 
 // ServerConfig contains configuration for the gRPC server.
@@ -47,16 +49,19 @@ func DefaultServerConfig() ServerConfig {
 }
 
 // NewServer creates a new gRPC server.
-func NewServer(store storage.Store, backend queue.Backend, config ServerConfig) *Server {
+func NewServer(store storage.Store, backend queue.Backend, config ServerConfig, sd statsd.ClientInterface) *Server {
 	return &Server{
 		store:   store,
 		backend: backend,
 		config:  config,
+		statsd:  sd,
 	}
 }
 
 // Enqueue handles a single job enqueue request.
 func (s *Server) Enqueue(ctx context.Context, req *jackpb.EnqueueRequest) (*jackpb.EnqueueResponse, error) {
+	start := time.Now()
+
 	// Validate required fields
 	if req.ProducerId == "" {
 		return nil, status.Error(codes.InvalidArgument, "producer_id is required")
@@ -106,12 +111,23 @@ func (s *Server) Enqueue(ctx context.Context, req *jackpb.EnqueueRequest) (*jack
 	}
 
 	// Enqueue to backend
+	tags := []string{
+		"job_type:" + req.JobType,
+		"producer_id:" + req.ProducerId,
+		"priority:" + priority.String(),
+	}
+
 	if err := s.backend.Enqueue(ctx, job); err != nil {
+		_ = s.statsd.Incr("jack.enqueue.count", append(tags, "status:error"), 1)
 		if errors.Is(err, queue.ErrQueueUnavailable) {
 			return nil, status.Error(codes.Unavailable, "queue temporarily unavailable")
 		}
 		return nil, status.Error(codes.Internal, "failed to enqueue job")
 	}
+
+	_ = s.statsd.Incr("jack.enqueue.count", append(tags, "status:success"), 1)
+	_ = s.statsd.Distribution("jack.enqueue.duration", time.Since(start).Seconds(), tags, 1)
+	_ = s.statsd.Distribution("jack.enqueue.payload_bytes", float64(len(req.Payload)), tags[:2], 1)
 
 	return &jackpb.EnqueueResponse{
 		JobId:         jobID,
@@ -122,6 +138,8 @@ func (s *Server) Enqueue(ctx context.Context, req *jackpb.EnqueueRequest) (*jack
 
 // EnqueueBulk handles a bulk job enqueue request.
 func (s *Server) EnqueueBulk(ctx context.Context, req *jackpb.EnqueueBulkRequest) (*jackpb.EnqueueBulkResponse, error) {
+	start := time.Now()
+
 	if len(req.Jobs) == 0 {
 		return nil, status.Error(codes.InvalidArgument, "jobs is required")
 	}
@@ -228,6 +246,17 @@ func (s *Server) EnqueueBulk(ctx context.Context, req *jackpb.EnqueueBulkRequest
 				results[validIdx].JobId = br.JobID
 			}
 		}
+	}
+
+	// Emit bulk metrics
+	_ = s.statsd.Distribution("jack.enqueue_bulk.jobs", float64(len(req.Jobs)), nil, 1)
+	_ = s.statsd.Distribution("jack.enqueue_bulk.duration", time.Since(start).Seconds(), nil, 1)
+	for _, br := range backendResults {
+		status := "success"
+		if br.Error != nil {
+			status = "error"
+		}
+		_ = s.statsd.Incr("jack.enqueue_bulk.count", []string{"status:" + status}, 1)
 	}
 
 	return &jackpb.EnqueueBulkResponse{

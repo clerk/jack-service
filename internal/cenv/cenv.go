@@ -23,6 +23,9 @@ const (
 	// Queue configuration
 	QueueBackend = "QUEUE_BACKEND" // "noop", "pubsub"
 
+	// Datadog configuration
+	DatadogStatsdAddr = "DATADOG_STATSD_ADDR"
+
 	// Pub/Sub configuration
 	PubSubProject        = "PUBSUB_PROJECT"
 	PubSubTopicHigh      = "PUBSUB_TOPIC_HIGH"
