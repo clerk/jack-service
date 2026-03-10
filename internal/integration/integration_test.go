@@ -10,15 +10,19 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"strings"
 	"testing"
 	"time"
 
 	"cloud.google.com/go/pubsub"
 	"github.com/DataDog/datadog-go/v5/statsd"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/health"
 	healthpb "google.golang.org/grpc/health/grpc_health_v1"
+	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/clerk/jack-service/internal/api"
 	"github.com/clerk/jack-service/internal/queue"
@@ -369,6 +373,421 @@ func TestHealthCheck(t *testing.T) {
 	}
 	if resp.Status != healthpb.HealthCheckResponse_SERVING {
 		t.Errorf("health status = %v, want SERVING", resp.Status)
+	}
+}
+
+// --- Validation Tests ---
+
+func TestEnqueue_EmptyProducerID(t *testing.T) {
+	ctx := context.Background()
+
+	_, err := bgClient.Enqueue(ctx, &jackpb.EnqueueRequest{
+		JobType: "SendEmail",
+		Payload: []byte(`{"Args":{}}`),
+	})
+	if err == nil {
+		t.Fatal("expected error for empty producer_id")
+	}
+	if s, ok := status.FromError(err); !ok || s.Code() != codes.InvalidArgument {
+		t.Errorf("expected InvalidArgument, got %v", err)
+	}
+}
+
+func TestEnqueue_EmptyJobType(t *testing.T) {
+	ctx := context.Background()
+
+	_, err := bgClient.Enqueue(ctx, &jackpb.EnqueueRequest{
+		ProducerId: "some-producer",
+		Payload:    []byte(`{"Args":{}}`),
+	})
+	if err == nil {
+		t.Fatal("expected error for empty job_type")
+	}
+	if s, ok := status.FromError(err); !ok || s.Code() != codes.InvalidArgument {
+		t.Errorf("expected InvalidArgument, got %v", err)
+	}
+}
+
+func TestEnqueue_PayloadTooLarge(t *testing.T) {
+	ctx := context.Background()
+
+	// Default MaxPayloadSize is 1MB (1048576 bytes)
+	bigPayload := make([]byte, 1048577)
+	for i := range bigPayload {
+		bigPayload[i] = 'x'
+	}
+
+	_, err := bgClient.Enqueue(ctx, &jackpb.EnqueueRequest{
+		ProducerId: "some-producer",
+		JobType:    "SomeJob",
+		Payload:    bigPayload,
+	})
+	if err == nil {
+		t.Fatal("expected error for oversized payload")
+	}
+	if s, ok := status.FromError(err); !ok || s.Code() != codes.InvalidArgument {
+		t.Errorf("expected InvalidArgument, got %v", err)
+	}
+}
+
+func TestEnqueueBulk_EmptyJobs(t *testing.T) {
+	ctx := context.Background()
+
+	_, err := bgClient.EnqueueBulk(ctx, &jackpb.EnqueueBulkRequest{
+		Jobs: []*jackpb.EnqueueRequest{},
+	})
+	if err == nil {
+		t.Fatal("expected error for empty jobs")
+	}
+	if s, ok := status.FromError(err); !ok || s.Code() != codes.InvalidArgument {
+		t.Errorf("expected InvalidArgument, got %v", err)
+	}
+}
+
+// --- Bulk Partial Failure Tests ---
+
+func TestEnqueueBulk_PartialFailure(t *testing.T) {
+	ctx := context.Background()
+	drainSub(ctx, subMedium)
+
+	resp, err := bgClient.EnqueueBulk(ctx, &jackpb.EnqueueBulkRequest{
+		Jobs: []*jackpb.EnqueueRequest{
+			{ProducerId: "prod-ok", JobType: "GoodJob", Payload: []byte(`{"Args":{}}`)},
+			{ProducerId: "", JobType: "BadJob"},                                          // missing producer_id
+			{ProducerId: "prod-ok", JobType: "", Payload: []byte(`{"Args":{}}`)},         // missing job_type
+			{ProducerId: "prod-ok2", JobType: "GoodJob2", Payload: []byte(`{"Args":{}}`)}, // valid
+		},
+	})
+	if err != nil {
+		t.Fatalf("EnqueueBulk: %v", err)
+	}
+	if len(resp.Results) != 4 {
+		t.Fatalf("got %d results, want 4", len(resp.Results))
+	}
+
+	// result[0]: valid → should have job_id
+	if resp.Results[0].JobId == "" {
+		t.Error("result[0]: expected job_id for valid job")
+	}
+	if resp.Results[0].Error != "" {
+		t.Errorf("result[0]: unexpected error: %s", resp.Results[0].Error)
+	}
+
+	// result[1]: missing producer_id → should have error
+	if resp.Results[1].Error == "" {
+		t.Error("result[1]: expected error for missing producer_id")
+	}
+
+	// result[2]: missing job_type → should have error
+	if resp.Results[2].Error == "" {
+		t.Error("result[2]: expected error for missing job_type")
+	}
+
+	// result[3]: valid → should have job_id
+	if resp.Results[3].JobId == "" {
+		t.Error("result[3]: expected job_id for valid job")
+	}
+
+	// Only 2 valid jobs should have been published
+	msgs, err := pullN(ctx, subMedium, 2, 5*time.Second)
+	if err != nil {
+		t.Fatalf("pullN: %v", err)
+	}
+	if len(msgs) != 2 {
+		t.Errorf("got %d messages, want 2", len(msgs))
+	}
+}
+
+// --- Scheduled Jobs (RunAt) ---
+
+func TestEnqueue_RunAt_Passthrough(t *testing.T) {
+	ctx := context.Background()
+	drainSub(ctx, subMedium)
+
+	scheduledTime := time.Date(2026, 6, 15, 10, 30, 0, 0, time.UTC)
+
+	resp, err := bgClient.Enqueue(ctx, &jackpb.EnqueueRequest{
+		ProducerId: "sched-producer",
+		JobType:    "ScheduledJob",
+		Payload:    []byte(`{"Args":{}}`),
+		RunAt:      timestamppb.New(scheduledTime),
+	})
+	if err != nil {
+		t.Fatalf("Enqueue: %v", err)
+	}
+	if resp.JobId == "" {
+		t.Fatal("expected non-empty job_id")
+	}
+
+	msg, err := pullOne(ctx, subMedium, 5*time.Second)
+	if err != nil {
+		t.Fatalf("pullOne: %v", err)
+	}
+
+	var legacy map[string]json.RawMessage
+	json.Unmarshal(msg.Data, &legacy)
+
+	var runAt time.Time
+	if err := json.Unmarshal(legacy["run_at"], &runAt); err != nil {
+		t.Fatalf("unmarshal run_at: %v", err)
+	}
+	if !runAt.Equal(scheduledTime) {
+		t.Errorf("run_at = %v, want %v", runAt, scheduledTime)
+	}
+}
+
+// --- Legacy JSON Payload Completeness ---
+
+func TestEnqueue_LegacyPayload_AllFields(t *testing.T) {
+	ctx := context.Background()
+	drainSub(ctx, subMedium)
+
+	payload := []byte(`{"TraceID":"trace-full","Args":{"key":"value"}}`)
+	_, err := bgClient.Enqueue(ctx, &jackpb.EnqueueRequest{
+		ProducerId: "payload-producer",
+		JobType:    "PayloadJob",
+		Payload:    payload,
+	})
+	if err != nil {
+		t.Fatalf("Enqueue: %v", err)
+	}
+
+	msg, err := pullOne(ctx, subMedium, 5*time.Second)
+	if err != nil {
+		t.Fatalf("pullOne: %v", err)
+	}
+
+	var legacy map[string]json.RawMessage
+	if err := json.Unmarshal(msg.Data, &legacy); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	// All required fields must be present
+	requiredFields := []string{"id", "run_at", "queue", "args", "status", "created_at", "updated_at", "job_type", "error_count"}
+	for _, field := range requiredFields {
+		if _, ok := legacy[field]; !ok {
+			t.Errorf("missing required field: %s", field)
+		}
+	}
+
+	// Verify specific field values
+	var id string
+	json.Unmarshal(legacy["id"], &id)
+	if !strings.HasPrefix(id, "pjob_") {
+		t.Errorf("id = %q, expected pjob_ prefix", id)
+	}
+
+	var jobType string
+	json.Unmarshal(legacy["job_type"], &jobType)
+	if jobType != "PayloadJob" {
+		t.Errorf("job_type = %q, want %q", jobType, "PayloadJob")
+	}
+
+	var queueName string
+	json.Unmarshal(legacy["queue"], &queueName)
+	if queueName != "medium" {
+		t.Errorf("queue = %q, want %q", queueName, "medium")
+	}
+
+	var statusField string
+	json.Unmarshal(legacy["status"], &statusField)
+	if statusField != "not_published" {
+		t.Errorf("status = %q, want %q", statusField, "not_published")
+	}
+
+	var errorCount int64
+	json.Unmarshal(legacy["error_count"], &errorCount)
+	if errorCount != 0 {
+		t.Errorf("error_count = %d, want 0", errorCount)
+	}
+
+	if string(legacy["args"]) != string(payload) {
+		t.Errorf("args = %s, want %s", legacy["args"], payload)
+	}
+
+	// Timestamps should parse as valid times
+	var createdAt time.Time
+	if err := json.Unmarshal(legacy["created_at"], &createdAt); err != nil {
+		t.Errorf("created_at not a valid time: %v", err)
+	}
+	var updatedAt time.Time
+	if err := json.Unmarshal(legacy["updated_at"], &updatedAt); err != nil {
+		t.Errorf("updated_at not a valid time: %v", err)
+	}
+
+	// published_at should be present (optional but LegacyAdapter always sets it)
+	if raw, ok := legacy["published_at"]; ok {
+		var publishedAt time.Time
+		if err := json.Unmarshal(raw, &publishedAt); err != nil {
+			t.Errorf("published_at not a valid time: %v", err)
+		}
+	}
+}
+
+// --- Admin Duplicate/Error Tests ---
+
+func TestAdmin_DuplicateProducer(t *testing.T) {
+	ctx := context.Background()
+
+	name := fmt.Sprintf("dup-producer-%d", time.Now().UnixNano())
+
+	_, err := adminClient.CreateProducer(ctx, &jackpb.CreateProducerRequest{
+		Name: name,
+	})
+	if err != nil {
+		t.Fatalf("first CreateProducer: %v", err)
+	}
+
+	// Creating a second producer with the same name should succeed
+	// (names are not unique, IDs are auto-generated)
+	_, err = adminClient.CreateProducer(ctx, &jackpb.CreateProducerRequest{
+		Name: name,
+	})
+	if err != nil {
+		t.Errorf("second CreateProducer with same name should succeed: %v", err)
+	}
+}
+
+func TestAdmin_DuplicateJobType(t *testing.T) {
+	ctx := context.Background()
+
+	prodResp, err := adminClient.CreateProducer(ctx, &jackpb.CreateProducerRequest{
+		Name: "dup-jt-producer",
+	})
+	if err != nil {
+		t.Fatalf("CreateProducer: %v", err)
+	}
+	pid := prodResp.Producer.ProducerId
+
+	_, err = adminClient.CreateJobType(ctx, &jackpb.CreateJobTypeRequest{
+		ProducerId: pid,
+		Name:       "DupJob",
+		Queue:      jackpb.Queue_QUEUE_MEDIUM,
+	})
+	if err != nil {
+		t.Fatalf("first CreateJobType: %v", err)
+	}
+
+	// Creating same job type again should fail with AlreadyExists
+	_, err = adminClient.CreateJobType(ctx, &jackpb.CreateJobTypeRequest{
+		ProducerId: pid,
+		Name:       "DupJob",
+		Queue:      jackpb.Queue_QUEUE_HIGH,
+	})
+	if err == nil {
+		t.Fatal("expected error for duplicate job type")
+	}
+	if s, ok := status.FromError(err); !ok || s.Code() != codes.AlreadyExists {
+		t.Errorf("expected AlreadyExists, got %v", err)
+	}
+}
+
+func TestAdmin_CreateJobType_ProducerNotFound(t *testing.T) {
+	ctx := context.Background()
+
+	_, err := adminClient.CreateJobType(ctx, &jackpb.CreateJobTypeRequest{
+		ProducerId: "prod_nonexistent",
+		Name:       "SomeJob",
+		Queue:      jackpb.Queue_QUEUE_MEDIUM,
+	})
+	if err == nil {
+		t.Fatal("expected error for nonexistent producer")
+	}
+	if s, ok := status.FromError(err); !ok || s.Code() != codes.NotFound {
+		t.Errorf("expected NotFound, got %v", err)
+	}
+}
+
+func TestAdmin_GetProducer_NotFound(t *testing.T) {
+	ctx := context.Background()
+
+	_, err := adminClient.GetProducer(ctx, &jackpb.GetProducerRequest{
+		ProducerId: "prod_doesnotexist",
+	})
+	if err == nil {
+		t.Fatal("expected error for nonexistent producer")
+	}
+	if s, ok := status.FromError(err); !ok || s.Code() != codes.NotFound {
+		t.Errorf("expected NotFound, got %v", err)
+	}
+}
+
+// --- List Operations ---
+
+func TestAdmin_ListProducers(t *testing.T) {
+	ctx := context.Background()
+
+	// Create two producers with unique names
+	name1 := fmt.Sprintf("list-prod-%d-a", time.Now().UnixNano())
+	name2 := fmt.Sprintf("list-prod-%d-b", time.Now().UnixNano())
+
+	_, err := adminClient.CreateProducer(ctx, &jackpb.CreateProducerRequest{Name: name1})
+	if err != nil {
+		t.Fatalf("CreateProducer(1): %v", err)
+	}
+	_, err = adminClient.CreateProducer(ctx, &jackpb.CreateProducerRequest{Name: name2})
+	if err != nil {
+		t.Fatalf("CreateProducer(2): %v", err)
+	}
+
+	listResp, err := adminClient.ListProducers(ctx, &jackpb.ListProducersRequest{})
+	if err != nil {
+		t.Fatalf("ListProducers: %v", err)
+	}
+
+	// Should contain at least these two (plus others from earlier tests)
+	found := map[string]bool{}
+	for _, p := range listResp.Producers {
+		found[p.Name] = true
+	}
+	if !found[name1] {
+		t.Errorf("ListProducers missing %s", name1)
+	}
+	if !found[name2] {
+		t.Errorf("ListProducers missing %s", name2)
+	}
+}
+
+func TestAdmin_ListJobTypes(t *testing.T) {
+	ctx := context.Background()
+
+	prodResp, err := adminClient.CreateProducer(ctx, &jackpb.CreateProducerRequest{
+		Name: "list-jt-producer",
+	})
+	if err != nil {
+		t.Fatalf("CreateProducer: %v", err)
+	}
+	pid := prodResp.Producer.ProducerId
+
+	_, err = adminClient.CreateJobType(ctx, &jackpb.CreateJobTypeRequest{
+		ProducerId: pid, Name: "ListJobA", Queue: jackpb.Queue_QUEUE_HIGH,
+	})
+	if err != nil {
+		t.Fatalf("CreateJobType(A): %v", err)
+	}
+	_, err = adminClient.CreateJobType(ctx, &jackpb.CreateJobTypeRequest{
+		ProducerId: pid, Name: "ListJobB", Queue: jackpb.Queue_QUEUE_LOW,
+	})
+	if err != nil {
+		t.Fatalf("CreateJobType(B): %v", err)
+	}
+
+	listResp, err := adminClient.ListJobTypes(ctx, &jackpb.ListJobTypesRequest{
+		ProducerId: pid,
+	})
+	if err != nil {
+		t.Fatalf("ListJobTypes: %v", err)
+	}
+	if len(listResp.JobTypes) != 2 {
+		t.Fatalf("got %d job types, want 2", len(listResp.JobTypes))
+	}
+
+	names := map[string]bool{}
+	for _, jt := range listResp.JobTypes {
+		names[jt.Name] = true
+	}
+	if !names["ListJobA"] || !names["ListJobB"] {
+		t.Errorf("expected ListJobA and ListJobB, got %v", names)
 	}
 }
 
