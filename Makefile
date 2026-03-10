@@ -1,4 +1,4 @@
-.PHONY: generate build run test clean lint breaking
+.PHONY: generate build run test test-integration clean lint breaking
 
 BUF := $(shell go env GOPATH)/bin/buf
 
@@ -32,6 +32,10 @@ run:
 # Run tests
 test:
 	go test -v ./...
+
+# Run integration tests (requires Pub/Sub emulator on localhost:8085)
+test-integration:
+	PUBSUB_EMULATOR_HOST=localhost:8085 go test -tags integration -v -timeout 120s ./internal/integration/
 
 # Clean build artifacts
 clean:

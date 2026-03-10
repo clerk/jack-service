@@ -2,9 +2,40 @@
 #
 # Variables are set via the Cloud Build Trigger configuration for each environment.
 steps:
+  # Run integration tests (gates deployment)
+  - id: integration-test
+    name: golang:1.25.6-bookworm
+    entrypoint: bash
+    args:
+      - -c
+      - |
+        set -e
+
+        # Install Java (Pub/Sub emulator dependency) and gcloud
+        apt-get update -qq
+        apt-get install -y -qq apt-transport-https ca-certificates gnupg curl default-jre-headless netcat-openbsd
+        curl -fsSL https://packages.cloud.google.com/apt/doc/apt-key.gpg | \
+          gpg --dearmor -o /usr/share/keyrings/cloud.google.gpg
+        echo "deb [signed-by=/usr/share/keyrings/cloud.google.gpg] https://packages.cloud.google.com/apt cloud-sdk main" \
+          > /etc/apt/sources.list.d/google-cloud-sdk.list
+        apt-get update -qq
+        apt-get install -y -qq google-cloud-cli google-cloud-cli-pubsub-emulator
+
+        # Start Pub/Sub emulator in background
+        gcloud beta emulators pubsub start --host-port=0.0.0.0:8085 &
+        for i in $$(seq 1 30); do
+          nc -z localhost 8085 2>/dev/null && break
+          sleep 1
+        done
+        export PUBSUB_EMULATOR_HOST=localhost:8085
+
+        # Run all tests (unit + integration)
+        go test -tags integration -v -timeout 120s ./...
+
   # Build the container image
   - id: build
     name: gcr.io/cloud-builders/docker
+    waitFor: [integration-test]
     args:
       - build
       - --build-arg
