@@ -73,6 +73,10 @@ type Job struct {
 
 	// CreatedAt is when the job was created.
 	CreatedAt time.Time
+
+	// Shadow indicates this job was enqueued in shadow/migration mode.
+	// When true, consumers can use this to distinguish Jack-path vs Dispatcher-path messages.
+	Shadow bool
 }
 
 // EnqueueResult represents the result of enqueueing a single job.

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"strconv"
 	"sync"
 	"time"
 
@@ -108,8 +109,12 @@ func (b *PubSubBackend) Enqueue(ctx context.Context, job *Job) error {
 
 	tags := []string{"priority:" + job.Priority.String()}
 
+	attrs := map[string]string{
+		"shadow": strconv.FormatBool(job.Shadow),
+	}
+
 	publishStart := time.Now()
-	result := topic.Publish(ctx, &pubsub.Message{Data: data})
+	result := topic.Publish(ctx, &pubsub.Message{Data: data, Attributes: attrs})
 	if _, err := result.Get(ctx); err != nil {
 		_ = b.statsd.Incr("jack.publish.count", append(tags, "status:error"), 1)
 		return fmt.Errorf("pubsub: publish job %s: %w", job.ID, err)
@@ -149,7 +154,11 @@ func (b *PubSubBackend) EnqueueBulk(ctx context.Context, jobs []*Job) []EnqueueR
 			continue
 		}
 
-		pr := topic.Publish(ctx, &pubsub.Message{Data: data})
+		attrs := map[string]string{
+			"shadow": strconv.FormatBool(job.Shadow),
+		}
+
+		pr := topic.Publish(ctx, &pubsub.Message{Data: data, Attributes: attrs})
 		pending[i] = publishResult{index: i, result: pr}
 	}
 

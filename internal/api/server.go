@@ -9,6 +9,7 @@ import (
 
 	"github.com/DataDog/datadog-go/v5/statsd"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 
 	"github.com/clerk/jack-service/internal/jobid"
@@ -104,6 +105,9 @@ func (s *Server) Enqueue(ctx context.Context, req *jackpb.EnqueueRequest) (*jack
 		runAt = req.RunAt.AsTime()
 	}
 
+	// Read shadow flag from gRPC metadata
+	shadow := shadowFromContext(ctx)
+
 	// Create job
 	job := &queue.Job{
 		ID:         jobID,
@@ -115,6 +119,7 @@ func (s *Server) Enqueue(ctx context.Context, req *jackpb.EnqueueRequest) (*jack
 		TraceID:    req.TraceId,
 		MaxRetries: maxRetries,
 		CreatedAt:  time.Now(),
+		Shadow:     shadow,
 	}
 
 	// Enqueue to backend (or schedule for the future)
@@ -168,6 +173,9 @@ func (s *Server) EnqueueBulk(ctx context.Context, req *jackpb.EnqueueBulkRequest
 	if len(req.Jobs) == 0 {
 		return nil, status.Error(codes.InvalidArgument, "jobs is required")
 	}
+
+	// Read shadow flag from gRPC metadata (applies to all jobs in the batch)
+	shadow := shadowFromContext(ctx)
 
 	// Prepare all jobs
 	jobs := make([]*queue.Job, len(req.Jobs))
@@ -225,6 +233,7 @@ func (s *Server) EnqueueBulk(ctx context.Context, req *jackpb.EnqueueBulkRequest
 			TraceID:    r.TraceId,
 			MaxRetries: maxRetries,
 			CreatedAt:  time.Now(),
+			Shadow:     shadow,
 		}
 	}
 
@@ -338,6 +347,17 @@ func (s *Server) getJobTypeConfig(ctx context.Context, producerID, jobType strin
 	}
 
 	return storageQueueToQueuePriority(jt.Queue), int(jt.MaxRetries), ""
+}
+
+// shadowFromContext reads the "shadow" flag from gRPC metadata.
+// Returns false if the header is missing or not "true".
+func shadowFromContext(ctx context.Context) bool {
+	md, ok := metadata.FromIncomingContext(ctx)
+	if !ok {
+		return false
+	}
+	vals := md.Get("shadow")
+	return len(vals) > 0 && vals[0] == "true"
 }
 
 // storageQueueToQueuePriority converts a storage queue to a queue.Priority.

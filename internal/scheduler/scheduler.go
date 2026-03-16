@@ -36,6 +36,7 @@ type scheduledJob struct {
 	TraceID    string `json:"trace_id"`
 	MaxRetries int    `json:"max_retries"`
 	CreatedAt  string `json:"created_at"`
+	Shadow     bool   `json:"shadow"`
 }
 
 // marshalJob serializes a queue.Job to JSON for the Cloud Tasks body.
@@ -50,6 +51,7 @@ func marshalJob(job *queue.Job) ([]byte, error) {
 		TraceID:    job.TraceID,
 		MaxRetries: job.MaxRetries,
 		CreatedAt:  job.CreatedAt.UTC().Format(time.RFC3339Nano),
+		Shadow:     job.Shadow,
 	}
 	return json.Marshal(sj)
 }
@@ -80,5 +82,6 @@ func UnmarshalJob(data []byte) (*queue.Job, error) {
 		TraceID:    sj.TraceID,
 		MaxRetries: sj.MaxRetries,
 		CreatedAt:  createdAt,
+		Shadow:     sj.Shadow,
 	}, nil
 }
