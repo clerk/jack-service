@@ -2,6 +2,8 @@
 package config
 
 import (
+	"time"
+
 	"github.com/clerk/jack-service/internal/cenv"
 )
 
@@ -26,6 +28,14 @@ type Config struct {
 	PubSubTopicMedium    string
 	PubSubTopicLow       string
 	PubSubTopicImmediate string
+
+	// Cloud Tasks configuration (for scheduled/future jobs)
+	CloudTasksProject        string
+	CloudTasksLocation       string
+	CloudTasksQueue          string
+	CallbackBaseURL          string
+	CloudTasksServiceAccount string
+	ScheduleThreshold        time.Duration
 }
 
 // Load reads configuration from environment variables.
@@ -41,5 +51,12 @@ func Load() (*Config, error) {
 		PubSubTopicMedium:    cenv.Get(cenv.PubSubTopicMedium),
 		PubSubTopicLow:       cenv.Get(cenv.PubSubTopicLow),
 		PubSubTopicImmediate: cenv.Get(cenv.PubSubTopicImmediate),
+
+		CloudTasksProject:        cenv.Get(cenv.CloudTasksProject),
+		CloudTasksLocation:       cenv.Get(cenv.CloudTasksLocation),
+		CloudTasksQueue:          cenv.Get(cenv.CloudTasksQueue),
+		CallbackBaseURL:          cenv.Get(cenv.CallbackBaseURL),
+		CloudTasksServiceAccount: cenv.Get(cenv.CloudTasksServiceAccount),
+		ScheduleThreshold:        cenv.GetDurationOrDefault(cenv.ScheduleThreshold, time.Minute),
 	}, nil
 }

@@ -86,7 +86,7 @@ func TestMain(m *testing.M) {
 
 	grpcServer := grpc.NewServer()
 	jackpb.RegisterBackgroundJobsServer(grpcServer,
-		api.NewServer(store, backend, api.DefaultServerConfig(), &statsd.NoOpClient{}))
+		api.NewServer(store, backend, nil, api.DefaultServerConfig(), &statsd.NoOpClient{}))
 	jackpb.RegisterAdminServiceServer(grpcServer, api.NewAdminServer(store))
 
 	healthSrv := health.NewServer()

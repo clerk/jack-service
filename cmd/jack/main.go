@@ -6,11 +6,15 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 
 	"github.com/DataDog/datadog-go/v5/statsd"
+	"golang.org/x/net/http2"
+	"golang.org/x/net/http2/h2c"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/health"
 	healthpb "google.golang.org/grpc/health/grpc_health_v1"
@@ -20,6 +24,7 @@ import (
 	"github.com/clerk/jack-service/internal/cenv"
 	"github.com/clerk/jack-service/internal/config"
 	"github.com/clerk/jack-service/internal/queue"
+	"github.com/clerk/jack-service/internal/scheduler"
 	"github.com/clerk/jack-service/internal/storage"
 	"github.com/clerk/jack-service/proto/jackpb"
 )
@@ -98,11 +103,36 @@ func main() {
 	}
 	defer backend.Close()
 
-	// Start gRPC server
+	// Initialize scheduler (for future/delayed jobs via Cloud Tasks)
+	var sched scheduler.Scheduler
+	if cfg.CloudTasksProject != "" {
+		log.Printf("Using Cloud Tasks scheduler (project=%s, location=%s, queue=%s)",
+			cfg.CloudTasksProject, cfg.CloudTasksLocation, cfg.CloudTasksQueue)
+		cloudTasksSched, err := scheduler.NewCloudTasksScheduler(ctx, scheduler.CloudTasksConfig{
+			Project:             cfg.CloudTasksProject,
+			Location:            cfg.CloudTasksLocation,
+			Queue:               cfg.CloudTasksQueue,
+			CallbackBaseURL:     cfg.CallbackBaseURL,
+			ServiceAccountEmail: cfg.CloudTasksServiceAccount,
+			Statsd:              sd,
+		})
+		if err != nil {
+			log.Fatalf("Failed to initialize Cloud Tasks scheduler: %v", err)
+		}
+		sched = cloudTasksSched
+	} else {
+		log.Println("Cloud Tasks not configured, using noop scheduler (future jobs will not be delayed)")
+		sched = scheduler.NewNoopScheduler()
+	}
+	defer sched.Close()
+
+	// Create gRPC server
 	grpcServer := grpc.NewServer()
 
 	// Register runtime service (Enqueue, EnqueueBulk)
-	runtimeServer := api.NewServer(store, backend, api.DefaultServerConfig(), sd)
+	serverConfig := api.DefaultServerConfig()
+	serverConfig.ScheduleThreshold = cfg.ScheduleThreshold
+	runtimeServer := api.NewServer(store, backend, sched, serverConfig, sd)
 	jackpb.RegisterBackgroundJobsServer(grpcServer, runtimeServer)
 
 	// Register admin service (producer/job type CRUD)
@@ -117,15 +147,35 @@ func main() {
 	// Enable reflection for debugging tools like grpcurl
 	reflection.Register(grpcServer)
 
-	grpcListener, err := net.Listen("tcp", fmt.Sprintf(":%d", cfg.GRPCPort))
+	// Set up HTTP mux for Cloud Tasks callbacks
+	httpMux := http.NewServeMux()
+	callbackHandler := api.NewCallbackHandler(backend, sd)
+	callbackHandler.Register(httpMux)
+
+	// Create a combined handler that routes gRPC (HTTP/2 + application/grpc) to the
+	// gRPC server and all other requests (Cloud Tasks callbacks) to the HTTP mux.
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.ProtoMajor == 2 && strings.HasPrefix(r.Header.Get("Content-Type"), "application/grpc") {
+			grpcServer.ServeHTTP(w, r)
+		} else {
+			httpMux.ServeHTTP(w, r)
+		}
+	})
+
+	listener, err := net.Listen("tcp", fmt.Sprintf(":%d", cfg.GRPCPort))
 	if err != nil {
-		log.Fatalf("Failed to listen on gRPC port: %v", err)
+		log.Fatalf("Failed to listen on port %d: %v", cfg.GRPCPort, err)
+	}
+
+	h2s := &http2.Server{}
+	httpServer := &http.Server{
+		Handler: h2c.NewHandler(handler, h2s),
 	}
 
 	go func() {
-		log.Printf("gRPC server listening on :%d", cfg.GRPCPort)
-		if err := grpcServer.Serve(grpcListener); err != nil {
-			log.Fatalf("gRPC server error: %v", err)
+		log.Printf("Server listening on :%d (gRPC + HTTP)", cfg.GRPCPort)
+		if err := httpServer.Serve(listener); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("Server error: %v", err)
 		}
 	}()
 
@@ -138,6 +188,7 @@ func main() {
 
 	// Graceful shutdown
 	healthServer.SetServingStatus("", healthpb.HealthCheckResponse_NOT_SERVING)
+	httpServer.Shutdown(ctx)
 	grpcServer.GracefulStop()
 
 	log.Println("Shutdown complete")

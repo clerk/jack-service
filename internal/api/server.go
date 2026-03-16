@@ -13,6 +13,7 @@ import (
 
 	"github.com/clerk/jack-service/internal/jobid"
 	"github.com/clerk/jack-service/internal/queue"
+	"github.com/clerk/jack-service/internal/scheduler"
 	"github.com/clerk/jack-service/internal/storage"
 	"github.com/clerk/jack-service/proto/jackpb"
 )
@@ -21,10 +22,11 @@ import (
 type Server struct {
 	jackpb.UnimplementedBackgroundJobsServer
 
-	store   storage.Store
-	backend queue.Backend
-	config  ServerConfig
-	statsd  statsd.ClientInterface
+	store     storage.Store
+	backend   queue.Backend
+	scheduler scheduler.Scheduler
+	config    ServerConfig
+	statsd    statsd.ClientInterface
 }
 
 // ServerConfig contains configuration for the gRPC server.
@@ -37,6 +39,10 @@ type ServerConfig struct {
 
 	// DefaultMaxRetries is the retry count when job type is not configured.
 	DefaultMaxRetries int
+
+	// ScheduleThreshold is the minimum RunAt offset to trigger Cloud Tasks scheduling.
+	// Jobs with RunAt >= now + ScheduleThreshold are scheduled via Cloud Tasks.
+	ScheduleThreshold time.Duration
 }
 
 // DefaultServerConfig returns the default server configuration.
@@ -49,12 +55,13 @@ func DefaultServerConfig() ServerConfig {
 }
 
 // NewServer creates a new gRPC server.
-func NewServer(store storage.Store, backend queue.Backend, config ServerConfig, sd statsd.ClientInterface) *Server {
+func NewServer(store storage.Store, backend queue.Backend, sched scheduler.Scheduler, config ServerConfig, sd statsd.ClientInterface) *Server {
 	return &Server{
-		store:   store,
-		backend: backend,
-		config:  config,
-		statsd:  sd,
+		store:     store,
+		backend:   backend,
+		scheduler: sched,
+		config:    config,
+		statsd:    sd,
 	}
 }
 
@@ -110,22 +117,40 @@ func (s *Server) Enqueue(ctx context.Context, req *jackpb.EnqueueRequest) (*jack
 		CreatedAt:  time.Now(),
 	}
 
-	// Enqueue to backend
+	// Enqueue to backend (or schedule for the future)
 	tags := []string{
 		"job_type:" + req.JobType,
 		"producer_id:" + req.ProducerId,
 		"priority:" + priority.String(),
 	}
 
+	// If the job is scheduled far enough in the future, use Cloud Tasks.
+	if s.scheduler != nil && s.config.ScheduleThreshold > 0 && time.Until(runAt) >= s.config.ScheduleThreshold {
+		if err := s.scheduler.Schedule(ctx, job); err != nil {
+			_ = s.statsd.Incr("jack.enqueue.count", append(tags, "status:error", "method:scheduled"), 1)
+			return nil, status.Error(codes.Internal, "failed to schedule future job")
+		}
+
+		_ = s.statsd.Incr("jack.enqueue.count", append(tags, "status:success", "method:scheduled"), 1)
+		_ = s.statsd.Distribution("jack.enqueue.duration", time.Since(start).Seconds(), tags, 1)
+		_ = s.statsd.Distribution("jack.enqueue.payload_bytes", float64(len(req.Payload)), tags[:2], 1)
+
+		return &jackpb.EnqueueResponse{
+			JobId:         jobID,
+			ErrorMessages: warnings,
+			CorrelationId: req.CorrelationId,
+		}, nil
+	}
+
 	if err := s.backend.Enqueue(ctx, job); err != nil {
-		_ = s.statsd.Incr("jack.enqueue.count", append(tags, "status:error"), 1)
+		_ = s.statsd.Incr("jack.enqueue.count", append(tags, "status:error", "method:immediate"), 1)
 		if errors.Is(err, queue.ErrQueueUnavailable) {
 			return nil, status.Error(codes.Unavailable, "queue temporarily unavailable")
 		}
 		return nil, status.Error(codes.Internal, "failed to enqueue job")
 	}
 
-	_ = s.statsd.Incr("jack.enqueue.count", append(tags, "status:success"), 1)
+	_ = s.statsd.Incr("jack.enqueue.count", append(tags, "status:success", "method:immediate"), 1)
 	_ = s.statsd.Distribution("jack.enqueue.duration", time.Since(start).Seconds(), tags, 1)
 	_ = s.statsd.Distribution("jack.enqueue.payload_bytes", float64(len(req.Payload)), tags[:2], 1)
 
@@ -203,20 +228,36 @@ func (s *Server) EnqueueBulk(ctx context.Context, req *jackpb.EnqueueBulkRequest
 		}
 	}
 
-	// Enqueue valid jobs
-	var validJobs []*queue.Job
-	validIndexes := make([]int, 0)
+	// Partition valid jobs into immediate and future (scheduled).
+	var immediateJobs []*queue.Job
+	var futureJobs []*queue.Job
+	immediateIndexes := make([]int, 0)
+	futureIndexes := make([]int, 0)
+	useScheduler := s.scheduler != nil && s.config.ScheduleThreshold > 0
+
 	for i, job := range jobs {
-		if job != nil {
-			validJobs = append(validJobs, job)
-			validIndexes = append(validIndexes, i)
+		if job == nil {
+			continue
+		}
+		if useScheduler && time.Until(job.RunAt) >= s.config.ScheduleThreshold {
+			futureJobs = append(futureJobs, job)
+			futureIndexes = append(futureIndexes, i)
+		} else {
+			immediateJobs = append(immediateJobs, job)
+			immediateIndexes = append(immediateIndexes, i)
 		}
 	}
 
-	// Bulk enqueue to backend
-	var backendResults []queue.EnqueueResult
-	if len(validJobs) > 0 {
-		backendResults = s.backend.EnqueueBulk(ctx, validJobs)
+	// Bulk enqueue immediate jobs to backend.
+	var immediateResults []queue.EnqueueResult
+	if len(immediateJobs) > 0 {
+		immediateResults = s.backend.EnqueueBulk(ctx, immediateJobs)
+	}
+
+	// Schedule future jobs via Cloud Tasks.
+	var futureResults []queue.EnqueueResult
+	if len(futureJobs) > 0 {
+		futureResults = s.scheduler.ScheduleBulk(ctx, futureJobs)
 	}
 
 	// Build response
@@ -236,10 +277,22 @@ func (s *Server) EnqueueBulk(ctx context.Context, req *jackpb.EnqueueBulkRequest
 		}
 	}
 
-	// Fill in backend results
-	for idx, validIdx := range validIndexes {
-		if idx < len(backendResults) {
-			br := backendResults[idx]
+	// Fill in immediate backend results.
+	for idx, validIdx := range immediateIndexes {
+		if idx < len(immediateResults) {
+			br := immediateResults[idx]
+			if br.Error != nil {
+				results[validIdx].Error = br.Error.Error()
+			} else {
+				results[validIdx].JobId = br.JobID
+			}
+		}
+	}
+
+	// Fill in scheduled results.
+	for idx, validIdx := range futureIndexes {
+		if idx < len(futureResults) {
+			br := futureResults[idx]
 			if br.Error != nil {
 				results[validIdx].Error = br.Error.Error()
 			} else {
@@ -251,12 +304,19 @@ func (s *Server) EnqueueBulk(ctx context.Context, req *jackpb.EnqueueBulkRequest
 	// Emit bulk metrics
 	_ = s.statsd.Distribution("jack.enqueue_bulk.jobs", float64(len(req.Jobs)), nil, 1)
 	_ = s.statsd.Distribution("jack.enqueue_bulk.duration", time.Since(start).Seconds(), nil, 1)
-	for _, br := range backendResults {
-		status := "success"
+	for _, br := range immediateResults {
+		st := "success"
 		if br.Error != nil {
-			status = "error"
+			st = "error"
 		}
-		_ = s.statsd.Incr("jack.enqueue_bulk.count", []string{"status:" + status}, 1)
+		_ = s.statsd.Incr("jack.enqueue_bulk.count", []string{"status:" + st, "method:immediate"}, 1)
+	}
+	for _, br := range futureResults {
+		st := "success"
+		if br.Error != nil {
+			st = "error"
+		}
+		_ = s.statsd.Incr("jack.enqueue_bulk.count", []string{"status:" + st, "method:scheduled"}, 1)
 	}
 
 	return &jackpb.EnqueueBulkResponse{

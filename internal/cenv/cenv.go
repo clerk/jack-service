@@ -32,6 +32,14 @@ const (
 	PubSubTopicMedium    = "PUBSUB_TOPIC_MEDIUM"
 	PubSubTopicLow       = "PUBSUB_TOPIC_LOW"
 	PubSubTopicImmediate = "PUBSUB_TOPIC_IMMEDIATE"
+
+	// Cloud Tasks configuration (for scheduled/future jobs)
+	CloudTasksProject        = "CLOUD_TASKS_PROJECT"
+	CloudTasksLocation       = "CLOUD_TASKS_LOCATION"
+	CloudTasksQueue          = "CLOUD_TASKS_QUEUE"
+	CallbackBaseURL          = "CALLBACK_BASE_URL"
+	CloudTasksServiceAccount = "CLOUD_TASKS_SERVICE_ACCOUNT"
+	ScheduleThreshold        = "SCHEDULE_THRESHOLD" // duration string, default "1m"
 )
 
 // Get returns the value of an environment variable, trimmed of whitespace.
