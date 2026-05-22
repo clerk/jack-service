@@ -3,6 +3,7 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -44,6 +45,11 @@ type ServerConfig struct {
 	// ScheduleThreshold is the minimum RunAt offset to trigger Cloud Tasks scheduling.
 	// Jobs with RunAt >= now + ScheduleThreshold are scheduled via Cloud Tasks.
 	ScheduleThreshold time.Duration
+
+	// LegacyPayloadQueueRouting uses the legacy PubsubJob payload queue field
+	// for routing when present. This is a compatibility path for Clerk's
+	// legacy background job migration.
+	LegacyPayloadQueueRouting bool
 }
 
 // DefaultServerConfig returns the default server configuration.
@@ -90,8 +96,8 @@ func (s *Server) Enqueue(ctx context.Context, req *jackpb.EnqueueRequest) (*jack
 		}
 	}
 
-	// Look up job type configuration (collects warning if not found)
-	priority, maxRetries, jobTypeWarning := s.getJobTypeConfig(ctx, req.ProducerId, req.JobType)
+	// Determine routing config (legacy payload queue, otherwise registry).
+	priority, maxRetries, jobTypeWarning := s.routingConfig(ctx, req.ProducerId, req.JobType, req.Payload)
 	if jobTypeWarning != "" {
 		warnings = append(warnings, jobTypeWarning)
 	}
@@ -206,8 +212,8 @@ func (s *Server) EnqueueBulk(ctx context.Context, req *jackpb.EnqueueBulkRequest
 			}
 		}
 
-		// Look up job type configuration
-		priority, maxRetries, jobTypeWarning := s.getJobTypeConfig(ctx, r.ProducerId, r.JobType)
+		// Determine routing config
+		priority, maxRetries, jobTypeWarning := s.routingConfig(ctx, r.ProducerId, r.JobType, r.Payload)
 		if jobTypeWarning != "" {
 			warnings = append(warnings, jobTypeWarning)
 		}
@@ -347,6 +353,41 @@ func (s *Server) getJobTypeConfig(ctx context.Context, producerID, jobType strin
 	}
 
 	return storageQueueToQueuePriority(jt.Queue), int(jt.MaxRetries), ""
+}
+
+func (s *Server) routingConfig(ctx context.Context, producerID, jobType string, payload []byte) (queue.Priority, int, string) {
+	if s.config.LegacyPayloadQueueRouting {
+		if priority, ok := legacyPayloadPriority(payload); ok {
+			_ = s.statsd.Incr("jack.enqueue.legacy_payload_queue_routing.count", []string{
+				"producer_id:" + producerID,
+				"job_type:" + jobType,
+				"priority:" + priority.String(),
+			}, 1)
+			return priority, s.config.DefaultMaxRetries, ""
+		}
+	}
+	return s.getJobTypeConfig(ctx, producerID, jobType)
+}
+
+func legacyPayloadPriority(payload []byte) (queue.Priority, bool) {
+	var legacy struct {
+		Queue string `json:"queue"`
+	}
+	if err := json.Unmarshal(payload, &legacy); err != nil {
+		return queue.PriorityUnspecified, false
+	}
+	switch legacy.Queue {
+	case "immediate":
+		return queue.PriorityImmediate, true
+	case "high":
+		return queue.PriorityHigh, true
+	case "medium":
+		return queue.PriorityMedium, true
+	case "low":
+		return queue.PriorityLow, true
+	default:
+		return queue.PriorityUnspecified, false
+	}
 }
 
 // shadowFromContext reads the "shadow" flag from gRPC metadata.
