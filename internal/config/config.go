@@ -30,12 +30,13 @@ type Config struct {
 	PubSubTopicImmediate string
 
 	// Cloud Tasks configuration (for scheduled/future jobs)
-	CloudTasksProject        string
-	CloudTasksLocation       string
-	CloudTasksQueue          string
-	CallbackBaseURL          string
-	CloudTasksServiceAccount string
-	ScheduleThreshold        time.Duration
+	CloudTasksProject         string
+	CloudTasksLocation        string
+	CloudTasksQueue           string
+	CallbackBaseURL           string
+	CloudTasksServiceAccount  string
+	ScheduleThreshold         time.Duration
+	LegacyPayloadQueueRouting bool
 }
 
 // Load reads configuration from environment variables.
@@ -52,11 +53,12 @@ func Load() (*Config, error) {
 		PubSubTopicLow:       cenv.Get(cenv.PubSubTopicLow),
 		PubSubTopicImmediate: cenv.Get(cenv.PubSubTopicImmediate),
 
-		CloudTasksProject:        cenv.Get(cenv.CloudTasksProject),
-		CloudTasksLocation:       cenv.Get(cenv.CloudTasksLocation),
-		CloudTasksQueue:          cenv.Get(cenv.CloudTasksQueue),
-		CallbackBaseURL:          cenv.Get(cenv.CallbackBaseURL),
-		CloudTasksServiceAccount: cenv.Get(cenv.CloudTasksServiceAccount),
-		ScheduleThreshold:        cenv.GetDurationOrDefault(cenv.ScheduleThreshold, time.Minute),
+		CloudTasksProject:         cenv.Get(cenv.CloudTasksProject),
+		CloudTasksLocation:        cenv.Get(cenv.CloudTasksLocation),
+		CloudTasksQueue:           cenv.Get(cenv.CloudTasksQueue),
+		CallbackBaseURL:           cenv.Get(cenv.CallbackBaseURL),
+		CloudTasksServiceAccount:  cenv.Get(cenv.CloudTasksServiceAccount),
+		ScheduleThreshold:         cenv.GetDurationOrDefault(cenv.ScheduleThreshold, time.Minute),
+		LegacyPayloadQueueRouting: cenv.GetBool(cenv.LegacyPayloadQueueRouting),
 	}, nil
 }

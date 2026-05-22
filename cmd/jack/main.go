@@ -132,6 +132,7 @@ func main() {
 	// Register runtime service (Enqueue, EnqueueBulk)
 	serverConfig := api.DefaultServerConfig()
 	serverConfig.ScheduleThreshold = cfg.ScheduleThreshold
+	serverConfig.LegacyPayloadQueueRouting = cfg.LegacyPayloadQueueRouting
 	runtimeServer := api.NewServer(store, backend, sched, serverConfig, sd)
 	jackpb.RegisterBackgroundJobsServer(grpcServer, runtimeServer)
 
