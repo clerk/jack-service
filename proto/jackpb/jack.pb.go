@@ -283,6 +283,7 @@ type BulkResult struct {
 	ErrorMessages []string `protobuf:"bytes,4,rep,name=error_messages,json=errorMessages,proto3" json:"error_messages,omitempty"`
 	// Echoed from the corresponding EnqueueRequest.correlation_id.
 	CorrelationId string `protobuf:"bytes,5,opt,name=correlation_id,json=correlationId,proto3" json:"correlation_id,omitempty"`
+	Reason        string `protobuf:"bytes,6,opt,name=reason,proto3" json:"reason,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -352,6 +353,13 @@ func (x *BulkResult) GetCorrelationId() string {
 	return ""
 }
 
+func (x *BulkResult) GetReason() string {
+	if x != nil {
+		return x.Reason
+	}
+	return ""
+}
+
 var File_jack_proto protoreflect.FileDescriptor
 
 const file_jack_proto_rawDesc = "" +
@@ -373,14 +381,15 @@ const file_jack_proto_rawDesc = "" +
 	"\x12EnqueueBulkRequest\x12(\n" +
 	"\x04jobs\x18\x01 \x03(\v2\x14.jack.EnqueueRequestR\x04jobs\"A\n" +
 	"\x13EnqueueBulkResponse\x12*\n" +
-	"\aresults\x18\x01 \x03(\v2\x10.jack.BulkResultR\aresults\"\x9d\x01\n" +
+	"\aresults\x18\x01 \x03(\v2\x10.jack.BulkResultR\aresults\"\xb5\x01\n" +
 	"\n" +
 	"BulkResult\x12\x14\n" +
 	"\x05index\x18\x01 \x01(\x05R\x05index\x12\x15\n" +
 	"\x06job_id\x18\x02 \x01(\tR\x05jobId\x12\x14\n" +
 	"\x05error\x18\x03 \x01(\tR\x05error\x12%\n" +
 	"\x0eerror_messages\x18\x04 \x03(\tR\rerrorMessages\x12%\n" +
-	"\x0ecorrelation_id\x18\x05 \x01(\tR\rcorrelationId2\x8c\x01\n" +
+	"\x0ecorrelation_id\x18\x05 \x01(\tR\rcorrelationId\x12\x16\n" +
+	"\x06reason\x18\x06 \x01(\tR\x06reason2\x8c\x01\n" +
 	"\x0eBackgroundJobs\x126\n" +
 	"\aEnqueue\x12\x14.jack.EnqueueRequest\x1a\x15.jack.EnqueueResponse\x12B\n" +
 	"\vEnqueueBulk\x12\x18.jack.EnqueueBulkRequest\x1a\x19.jack.EnqueueBulkResponseB,Z*github.com/clerk/jack-service/proto/jackpbb\x06proto3"
