@@ -477,10 +477,16 @@ func TestEnqueueBulk_PartialFailure(t *testing.T) {
 	if resp.Results[1].Error == "" {
 		t.Error("result[1]: expected error for missing producer_id")
 	}
+	if resp.Results[1].Reason != "validation_error" {
+		t.Errorf("result[1]: reason = %q, want validation_error", resp.Results[1].Reason)
+	}
 
 	// result[2]: missing job_type → should have error
 	if resp.Results[2].Error == "" {
 		t.Error("result[2]: expected error for missing job_type")
+	}
+	if resp.Results[2].Reason != "validation_error" {
+		t.Errorf("result[2]: reason = %q, want validation_error", resp.Results[2].Reason)
 	}
 
 	// result[3]: valid → should have job_id
@@ -495,6 +501,33 @@ func TestEnqueueBulk_PartialFailure(t *testing.T) {
 	}
 	if len(msgs) != 2 {
 		t.Errorf("got %d messages, want 2", len(msgs))
+	}
+}
+
+func TestEnqueueBulk_PayloadTooLargeReason(t *testing.T) {
+	ctx := context.Background()
+
+	bigPayload := make([]byte, 1048577)
+	for i := range bigPayload {
+		bigPayload[i] = 'x'
+	}
+
+	resp, err := bgClient.EnqueueBulk(ctx, &jackpb.EnqueueBulkRequest{
+		Jobs: []*jackpb.EnqueueRequest{
+			{ProducerId: "prod-ok", JobType: "GoodJob", Payload: bigPayload},
+		},
+	})
+	if err != nil {
+		t.Fatalf("EnqueueBulk: %v", err)
+	}
+	if len(resp.Results) != 1 {
+		t.Fatalf("got %d results, want 1", len(resp.Results))
+	}
+	if resp.Results[0].Error == "" {
+		t.Error("expected error for oversized payload")
+	}
+	if resp.Results[0].Reason != "payload_too_large" {
+		t.Errorf("reason = %q, want payload_too_large", resp.Results[0].Reason)
 	}
 }
 

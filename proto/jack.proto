@@ -77,4 +77,6 @@ message BulkResult {
 
     // Echoed from the corresponding EnqueueRequest.correlation_id.
     string correlation_id = 5;
+
+    string reason = 6;
 }

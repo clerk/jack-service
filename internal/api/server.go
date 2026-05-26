@@ -20,6 +20,12 @@ import (
 	"github.com/clerk/jack-service/proto/jackpb"
 )
 
+const (
+	bulkReasonValidationError = "validation_error"
+	bulkReasonPayloadTooLarge = "payload_too_large"
+	bulkReasonInternalError   = "internal_error"
+)
+
 // Server implements the BackgroundJobs gRPC service.
 type Server struct {
 	jackpb.UnimplementedBackgroundJobsServer
@@ -186,20 +192,24 @@ func (s *Server) EnqueueBulk(ctx context.Context, req *jackpb.EnqueueBulkRequest
 	// Prepare all jobs
 	jobs := make([]*queue.Job, len(req.Jobs))
 	validationErrors := make([]string, len(req.Jobs))
+	validationReasons := make([]string, len(req.Jobs))
 	jobWarnings := make([][]string, len(req.Jobs))
 
 	for i, r := range req.Jobs {
 		// Validate
 		if r.ProducerId == "" {
 			validationErrors[i] = "producer_id is required"
+			validationReasons[i] = bulkReasonValidationError
 			continue
 		}
 		if r.JobType == "" {
 			validationErrors[i] = "job_type is required"
+			validationReasons[i] = bulkReasonValidationError
 			continue
 		}
 		if len(r.Payload) > s.config.MaxPayloadSize {
 			validationErrors[i] = "payload exceeds max size"
+			validationReasons[i] = bulkReasonPayloadTooLarge
 			continue
 		}
 
@@ -289,6 +299,7 @@ func (s *Server) EnqueueBulk(ctx context.Context, req *jackpb.EnqueueBulkRequest
 	for i, errMsg := range validationErrors {
 		if errMsg != "" {
 			results[i].Error = errMsg
+			results[i].Reason = validationReasons[i]
 		}
 	}
 
@@ -298,6 +309,7 @@ func (s *Server) EnqueueBulk(ctx context.Context, req *jackpb.EnqueueBulkRequest
 			br := immediateResults[idx]
 			if br.Error != nil {
 				results[validIdx].Error = br.Error.Error()
+				results[validIdx].Reason = bulkReasonInternalError
 			} else {
 				results[validIdx].JobId = br.JobID
 			}
@@ -310,6 +322,7 @@ func (s *Server) EnqueueBulk(ctx context.Context, req *jackpb.EnqueueBulkRequest
 			br := futureResults[idx]
 			if br.Error != nil {
 				results[validIdx].Error = br.Error.Error()
+				results[validIdx].Reason = bulkReasonInternalError
 			} else {
 				results[validIdx].JobId = br.JobID
 			}
