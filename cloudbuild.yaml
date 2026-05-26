@@ -4,7 +4,7 @@
 steps:
   # Run integration tests (gates deployment)
   - id: integration-test
-    name: golang:1.25.6-bookworm
+    name: golang:1.25.10-bookworm
     entrypoint: bash
     args:
       - -c
